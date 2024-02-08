@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="default_digital_widget_height">100.0dip</dimen>
+    <dimen name="default_digital_widget_width">150.0dip</dimen>
+    <dimen name="digital_widget_min_height">0.0dip</dimen>
+    <dimen name="digital_widget_min_width">85.0dip</dimen>
+    <dimen name="digital_widget_preview_alarm_icon_margin">20.0dip</dimen>
+    <dimen name="digital_widget_preview_clock_font_size">580.0dip</dimen>
+    <dimen name="digital_widget_preview_clock_margin">-100.0dip</dimen>
+    <dimen name="digital_widget_preview_label_font_size">100.0dip</dimen>
+    <dimen name="digital_widget_preview_padding">80.0dip</dimen>
+    <dimen name="digital_widget_preview_widget_height">1300.0dip</dimen>
+    <dimen name="digital_widget_preview_widget_width">1800.0dip</dimen>
+    <dimen name="widget_background_corner_radius">1024.0dip</dimen>
+
+</resources>

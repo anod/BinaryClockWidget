@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Binary Clock Widget</string>
+    <string name="abbrev_wday_month_day_no_year_preview">EEE, MMM d</string>
+    <string name="lock_screen_12_hour_format">h:mm</string>
+    <string name="lock_screen_24_hour_format">kk:mm</string>
+    <string name="digital_widgets_preview_alarm">Mon 09.30 a.m.</string>
+</resources>
