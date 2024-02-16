@@ -10,6 +10,7 @@ import androidx.glance.GlanceTheme
 import androidx.glance.action.actionStartActivity
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.provideContent
+import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
@@ -25,9 +26,8 @@ class AppWidget : GlanceAppWidget() {
         // In this method, load data needed to render the AppWidget.
         // Use `withContext` to switch to another thread for long running
         // operations.
-
         provideContent {
-            GlanceTheme {
+            GlanceTheme() {
                 WidgetContent()
             }
         }
@@ -36,7 +36,9 @@ class AppWidget : GlanceAppWidget() {
     @Composable
     private fun WidgetContent() {
         Column(
-            modifier = GlanceModifier.fillMaxSize(),
+            modifier = GlanceModifier
+                .fillMaxSize()
+                .background(GlanceTheme.colors.surface),
             verticalAlignment = Alignment.Top,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
