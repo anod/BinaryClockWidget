@@ -41,7 +41,7 @@ android {
         compose = true
     }
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.9"
+        kotlinCompilerExtensionVersion = "1.5.10"
     }
     packaging {
         resources {
@@ -61,6 +61,8 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.glance.appwidget)
+    implementation(libs.androidx.glance.preview)
+    debugImplementation(libs.glance.appwidget.preview)
     implementation(libs.glance.material3)
 
     testImplementation(libs.junit)
