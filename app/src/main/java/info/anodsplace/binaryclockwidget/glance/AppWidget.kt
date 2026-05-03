@@ -28,7 +28,6 @@ import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.layout.width
 import androidx.glance.preview.ExperimentalGlancePreviewApi
-import androidx.glance.preview.Surfaces
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
@@ -164,7 +163,7 @@ fun GlanceModifier.appWidgetInnerCornerRadius(): GlanceModifier {
 }
 
 @OptIn(ExperimentalGlancePreviewApi::class)
-@androidx.glance.preview.Preview(Surfaces.APP_WIDGET)
+@androidx.glance.preview.Preview
 @Composable
 fun WidgetPreview() {
     GlanceTheme() {
