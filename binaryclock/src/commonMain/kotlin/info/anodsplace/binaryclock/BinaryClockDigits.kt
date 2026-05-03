@@ -8,18 +8,21 @@ object BinaryClockDigits {
         return bitValues.map { bit -> (digit and bit) == bit }
     }
 
-    fun timeDigits(hour: Int, minute: Int, second: Int): List<Int> {
+    fun timeDigits(hour: Int, minute: Int, second: Int = -1): List<Int> {
         require(hour in 0..23) { "Hour must be between 0 and 23" }
         require(minute in 0..59) { "Minute must be between 0 and 59" }
-        require(second in 0..59) { "Second must be between 0 and 59" }
 
-        return listOf(
+        val digits = mutableListOf(
             hour / 10,
             hour % 10,
             minute / 10,
             minute % 10,
-            second / 10,
-            second % 10,
         )
+        if (second >= 0) {
+            require(second in 0..59) { "Second must be between 0 and 59" }
+            digits.add(second / 10)
+            digits.add(second % 10)
+        }
+        return digits
     }
 }

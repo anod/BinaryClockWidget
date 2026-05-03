@@ -1,23 +1,35 @@
+// Lint false positive: ColorProvider(Color) is public API, but lint confuses it with the restricted ColorProvider(@ColorRes Int) overload
+// https://issuetracker.google.com/issues/324087645
+@file:SuppressLint("RestrictedApi")
+
 package info.anodsplace.binaryclock
 
+import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.PendingIntent
+import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.datastore.preferences.core.Preferences
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.GlanceTheme
 import androidx.glance.LocalSize
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.glance.appwidget.appWidgetBackground
+import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
+import androidx.glance.currentState
 import androidx.glance.layout.Alignment
+import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
@@ -26,6 +38,7 @@ import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.width
 import androidx.glance.text.Text
+import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import java.time.LocalTime
@@ -36,13 +49,15 @@ import kotlinx.coroutines.launch
 class BinaryClockGlanceWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
+            val config = BinaryClockWidgetConfigKeys.fromPreferences(currentState<Preferences>())
             val now = LocalTime.now()
             BinaryClockWidgetContent(
                 digits = BinaryClockDigits.timeDigits(
                     hour = now.hour,
                     minute = now.minute,
-                    second = now.second,
                 ),
+                showBitLabels = config.showBitLabels,
+                showHmsLabels = config.showHmsLabels,
             )
         }
     }
@@ -63,46 +78,85 @@ class BinaryClockWidgetReceiver : GlanceAppWidgetReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        if (intent.action != ACTION_REFRESH_BINARY_CLOCK) {
-            return
-        }
-
-        val pendingResult = goAsync()
-        CoroutineScope(Dispatchers.Default).launch {
-            try {
-                val applicationContext = context.applicationContext
-                glanceAppWidget.updateAll(applicationContext)
-                BinaryClockRefreshScheduler.scheduleNext(applicationContext)
-            } finally {
-                pendingResult.finish()
+        val action = intent.action
+        if (action == ACTION_REFRESH_BINARY_CLOCK
+            || action == Intent.ACTION_TIME_CHANGED
+            || action == Intent.ACTION_TIMEZONE_CHANGED
+        ) {
+            val pendingResult = goAsync()
+            CoroutineScope(Dispatchers.Default).launch {
+                try {
+                    val applicationContext = context.applicationContext
+                    glanceAppWidget.updateAll(applicationContext)
+                    BinaryClockRefreshScheduler.scheduleNext(applicationContext)
+                } finally {
+                    pendingResult.finish()
+                }
             }
         }
     }
+
+    override fun onUpdate(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetIds: IntArray,
+    ) {
+        super.onUpdate(context, appWidgetManager, appWidgetIds)
+        // Re-schedule alarm on every update (app reinstall, system restart, periodic update)
+        BinaryClockRefreshScheduler.scheduleNext(context)
+    }
 }
 
+// Max possible value per digit column: H tens(2), H ones(9), M tens(5), M ones(9), S tens(5), S ones(9)
+private val maxDigitValues = listOf(2, 9, 5, 9, 5, 9)
+private val labels = listOf("H", "M", "S")
+private val labelFontSize = 10.sp
+
 @Composable
-internal fun BinaryClockWidgetContent(digits: List<Int>) {
+fun BinaryClockWidgetContent(
+    digits: List<Int>,
+    showBitLabels: Boolean = true,
+    showHmsLabels: Boolean = true,
+) {
     val isCompactMode = LocalSize.current.width < REGULAR_LAYOUT_MINIMUM_WIDTH
-    Column(
-        modifier = GlanceModifier
-            .fillMaxSize()
-            .background(ColorProvider(Color(0xFF101010)))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(
+    val dotSize = if (isCompactMode) 6.dp else 8.dp
+    val groupGap = if (isCompactMode) 6.dp else 10.dp
+    val digitGap = if (isCompactMode) 3.dp else 4.dp
+    val rowGap = if (isCompactMode) 4.dp else 6.dp
+    val quadSize = dotSize * 2 // total size of one quad dot (2 sub-dots, no inner gap)
+    val activeColor = GlanceTheme.colors.onSurfaceVariant
+    val inactiveColor = GlanceTheme.colors.surfaceVariant
+    val pairCount = digits.size / 2
+
+    GlanceTheme {
+        Column(
+            modifier = GlanceModifier
+                .fillMaxSize()
+                .appWidgetBackground()
+                .background(GlanceTheme.colors.background)
+                .cornerRadius(android.R.dimen.system_app_widget_background_radius)
+                .padding(horizontal = 4.dp, vertical = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            digits.forEachIndexed { index, digit ->
-                BinaryDigitColumn(
-                    digit = digit,
-                    label = labels[index],
-                    compact = isCompactMode,
-                )
-                if (index < digits.lastIndex) {
-                    Spacer(modifier = GlanceModifier.width(if (index == 1 || index == 3) 12.dp else 6.dp))
+            Row(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                for (i in 0 until pairCount) {
+                    if (i > 0) {
+                        Spacer(modifier = GlanceModifier.width(groupGap))
+                    }
+                    DigitPair(
+                        digits[i * 2], digits[i * 2 + 1],
+                        maxDigitValues[i * 2], maxDigitValues[i * 2 + 1],
+                        if (showHmsLabels) labels[i] else null,
+                        dotSize, digitGap, rowGap, quadSize, activeColor, inactiveColor,
+                    )
+                }
+                if (showBitLabels) {
+                    Spacer(modifier = GlanceModifier.width(groupGap))
+                    BitLabelsColumn(quadSize = quadSize, rowGap = rowGap)
                 }
             }
         }
@@ -110,37 +164,103 @@ internal fun BinaryClockWidgetContent(digits: List<Int>) {
 }
 
 @Composable
-private fun BinaryDigitColumn(digit: Int, label: String, compact: Boolean) {
-    val dotSize = if (compact) 16.dp else 18.dp
-    val dotFontSize = if (compact) 14.sp else 16.sp
+private fun DigitPair(
+    digit1: Int, digit2: Int,
+    maxValue1: Int, maxValue2: Int,
+    label: String?,
+    dotSize: Dp, digitGap: Dp, rowGap: Dp, quadSize: Dp,
+    activeColor: ColorProvider, inactiveColor: ColorProvider,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            BinaryDigitColumn(digit1, maxValue1, dotSize, rowGap, quadSize, activeColor, inactiveColor)
+            Spacer(modifier = GlanceModifier.width(digitGap))
+            BinaryDigitColumn(digit2, maxValue2, dotSize, rowGap, quadSize, activeColor, inactiveColor)
+        }
+        if (label != null) {
+            Spacer(modifier = GlanceModifier.height(2.dp))
+            Text(
+                text = label,
+                style = TextStyle(
+                    color = GlanceTheme.colors.onSurfaceVariant,
+                    fontSize = labelFontSize,
+                    textAlign = TextAlign.Center,
+                ),
+            )
+        }
+    }
+}
 
+@Composable
+private fun BinaryDigitColumn(
+    digit: Int, maxValue: Int,
+    dotSize: Dp, rowGap: Dp, quadSize: Dp,
+    activeColor: ColorProvider, inactiveColor: ColorProvider,
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BinaryClockDigits.digitBits(digit).forEach { active ->
+        BinaryClockDigits.digitBits(digit).forEachIndexed { bitIndex, active ->
+            val bitValue = BinaryClockDigits.bitValues[bitIndex]
+            if (bitValue <= maxValue) {
+                QuadDot(active = active, dotSize = dotSize, activeColor = activeColor, inactiveColor = inactiveColor)
+            } else {
+                Spacer(modifier = GlanceModifier.width(quadSize).height(quadSize))
+            }
+            if (bitIndex < 3) {
+                Spacer(modifier = GlanceModifier.height(rowGap))
+            }
+        }
+    }
+}
+
+// A 2×2 grid of small rounded boxes forming a bigger square-ish dot
+@Composable
+private fun QuadDot(active: Boolean, dotSize: Dp, activeColor: ColorProvider, inactiveColor: ColorProvider) {
+    val color = if (active) activeColor else inactiveColor
+    val cornerRadius = dotSize / 2
+    Column {
+        Row {
+            Box(modifier = GlanceModifier.width(dotSize).height(dotSize).background(color).cornerRadius(cornerRadius)) {}
+            Box(modifier = GlanceModifier.width(dotSize).height(dotSize).background(color).cornerRadius(cornerRadius)) {}
+        }
+        Row {
+            Box(modifier = GlanceModifier.width(dotSize).height(dotSize).background(color).cornerRadius(cornerRadius)) {}
+            Box(modifier = GlanceModifier.width(dotSize).height(dotSize).background(color).cornerRadius(cornerRadius)) {}
+        }
+    }
+}
+
+@Composable
+private fun BitLabelsColumn(quadSize: Dp, rowGap: Dp) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BinaryClockDigits.bitValues.forEachIndexed { index, value ->
             Text(
-                text = if (active) "●" else "○",
-                modifier = GlanceModifier.width(dotSize).height(dotSize),
+                text = value.toString(),
+                modifier = GlanceModifier.height(quadSize),
                 style = TextStyle(
-                    color = ColorProvider(if (active) Color.White else Color(0xFF555555)),
-                    fontSize = dotFontSize,
+                    color = GlanceTheme.colors.onSurfaceVariant,
+                    fontSize = labelFontSize,
+                    textAlign = TextAlign.Center,
                 ),
             )
+            if (index < 3) {
+                Spacer(modifier = GlanceModifier.height(rowGap))
+            }
         }
-        Spacer(modifier = GlanceModifier.height(4.dp))
+        Spacer(modifier = GlanceModifier.height(2.dp))
         Text(
-            text = label,
-            style = TextStyle(
-                color = ColorProvider(Color(0xFF888888)),
-                fontSize = 10.sp,
-            ),
+            text = "",
+            style = TextStyle(fontSize = labelFontSize),
         )
     }
 }
 
-private val labels = listOf("H", "H", "M", "M", "S", "S")
-private val REGULAR_LAYOUT_MINIMUM_WIDTH = 180.dp
+private val REGULAR_LAYOUT_MINIMUM_WIDTH = 200.dp
 
 private const val ACTION_REFRESH_BINARY_CLOCK = "info.anodsplace.binaryclock.action.REFRESH"
 private const val MINUTE_MILLIS = 60_000L
@@ -153,7 +273,7 @@ private object BinaryClockRefreshScheduler {
         }
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         val refreshIntent = pendingIntent(context)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && alarmManager.canScheduleExactAlarms()) {
+        if (alarmManager.canScheduleExactAlarms()) {
             alarmManager.setExact(AlarmManager.RTC, nextMinute, refreshIntent)
         } else {
             alarmManager.setWindow(AlarmManager.RTC, nextMinute, INEXACT_REFRESH_WINDOW_MILLIS, refreshIntent)

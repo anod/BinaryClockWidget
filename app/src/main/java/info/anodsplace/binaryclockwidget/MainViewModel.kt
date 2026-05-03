@@ -2,6 +2,7 @@ package info.anodsplace.binaryclockwidget
 
 import android.app.Application
 import android.appwidget.AppWidgetManager
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.unit.DpSize
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.glance.GlanceId
@@ -23,17 +24,20 @@ import kotlinx.coroutines.launch
 
 internal data class AppWidgetId(val appWidgetId: Int) : GlanceId
 
+@Immutable
 data class ProviderData(
     val provider: Class<out GlanceAppWidget>,
     val receiver: Class<out GlanceAppWidgetReceiver>,
     val appWidgets: List<AppWidgetDesc>,
 )
 
+@Immutable
 data class AppWidgetDesc(
     val appWidgetId: GlanceId,
     val sizes: List<DpSize>,
 )
 
+@Immutable
 data class MainViewState(
     val providers: List<ProviderData> = emptyList()
 )

@@ -1,45 +1,66 @@
 package info.anodsplace.binaryclockwidget
 
-import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Bundle
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.glance.appwidget.GlanceAppWidget
-import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.glance.appwidget.ExperimentalGlanceRemoteViewsApi
+import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.GlanceRemoteViews
+import androidx.glance.appwidget.state.updateAppWidgetState
+import info.anodsplace.binaryclock.BinaryClockDigits
 import info.anodsplace.binaryclock.BinaryClockGlanceWidget
+import info.anodsplace.binaryclock.BinaryClockWidgetConfig
+import info.anodsplace.binaryclock.BinaryClockWidgetConfigKeys
+import info.anodsplace.binaryclock.BinaryClockWidgetContent
 import info.anodsplace.binaryclock.BinaryClockWidgetReceiver
 import info.anodsplace.binaryclockwidget.ui.theme.BinaryClockWidgetTheme
+import java.time.LocalTime
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels {
@@ -51,21 +72,59 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+            navigationBarStyle = SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+        )
         super.onCreate(savedInstanceState)
 
-        val resultValue = Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, viewModel.appWidgetId)
-        setResult(Activity.RESULT_OK, resultValue)
+        val isConfigMode = viewModel.appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID
+        // Widget config: default to canceled until user confirms
+        setResult(RESULT_CANCELED)
+
         setContent {
             BinaryClockWidgetTheme {
-                // A surface container using the 'background' color from the theme
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    val uiState by viewModel.uiState.collectAsState()
-                    MainScreen(
-                        uiState = uiState,
-                        onProviderClicked = viewModel::onProviderClicked
-                    )
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .systemBarsPadding(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    if (isConfigMode) {
+                        WidgetConfigScreen(
+                            appWidgetId = viewModel.appWidgetId,
+                            onConfirm = { config ->
+                                saveConfigAndFinish(viewModel.appWidgetId, config)
+                            },
+                        )
+                    } else {
+                        val uiState by viewModel.uiState.collectAsState()
+                        MainScreen(
+                            uiState = uiState,
+                            onProviderClicked = viewModel::onProviderClicked
+                        )
+                    }
                 }
             }
+        }
+    }
+
+    private fun saveConfigAndFinish(appWidgetId: Int, config: BinaryClockWidgetConfig) {
+        MainScope().launch {
+            val glanceId = GlanceAppWidgetManager(this@MainActivity).getGlanceIdBy(appWidgetId)
+            updateAppWidgetState(this@MainActivity, glanceId) { prefs ->
+                prefs[BinaryClockWidgetConfigKeys.showBitLabels] = config.showBitLabels
+                prefs[BinaryClockWidgetConfigKeys.showHmsLabels] = config.showHmsLabels
+            }
+            BinaryClockGlanceWidget().update(this@MainActivity, glanceId)
+            setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
+            finish()
         }
     }
 
@@ -75,17 +134,125 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@Suppress("UnusedBoxWithConstraintsScope")
 @Composable
 fun MainScreen(uiState: MainViewState, onProviderClicked: (ProviderData) -> Unit) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val isTablet = maxWidth > 600.dp
+        if (isTablet) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                WidgetPreviewSection(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                )
+                WidgetInstancesSection(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    uiState = uiState,
+                    onProviderClicked = onProviderClicked,
+                )
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                WidgetPreviewSection(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                )
+                WidgetInstancesSection(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    uiState = uiState,
+                    onProviderClicked = onProviderClicked,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalGlanceRemoteViewsApi::class)
+@Composable
+private fun WidgetPreviewSection(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val now = LocalTime.now()
+    val digits = BinaryClockDigits.timeDigits(now.hour, now.minute, now.second)
+
+    BoxWithConstraints(
+        modifier = modifier.padding(16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        val previewWidth = minOf(maxWidth, 360.dp)
+        val previewHeight = previewWidth * 0.55f
+        val size = DpSize(previewWidth, previewHeight)
+
+        val remoteViews by produceState<android.widget.RemoteViews?>(initialValue = null, digits, size) {
+            value = GlanceRemoteViews().compose(
+                context = context,
+                size = size,
+            ) {
+                BinaryClockWidgetContent(digits = digits)
+            }.remoteViews
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                "Preview",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            remoteViews?.let { rv ->
+                AndroidView(
+                    modifier = Modifier
+                        .width(previewWidth)
+                        .height(previewHeight),
+                    factory = { ctx ->
+                        val density = ctx.resources.displayMetrics.density
+                        val widthPx = (previewWidth.value * density).toInt()
+                        val heightPx = (previewHeight.value * density).toInt()
+                        FrameLayout(ctx).apply {
+                            val child = rv.apply(ctx, this)
+                            child.layoutParams = FrameLayout.LayoutParams(widthPx, heightPx)
+                            addView(child)
+                        }
+                    },
+                    update = { frameLayout ->
+                        val density = frameLayout.context.resources.displayMetrics.density
+                        val widthPx = (previewWidth.value * density).toInt()
+                        val heightPx = (previewHeight.value * density).toInt()
+                        frameLayout.removeAllViews()
+                        val child = rv.apply(frameLayout.context, frameLayout)
+                        child.layoutParams = FrameLayout.LayoutParams(widthPx, heightPx)
+                        frameLayout.addView(child)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WidgetInstancesSection(
+    modifier: Modifier = Modifier,
+    uiState: MainViewState,
+    onProviderClicked: (ProviderData) -> Unit,
+) {
+    Column(
+        modifier = modifier.padding(16.dp),
+    ) {
         Text(
-            "Installed App Widgets",
+            "Installed Widgets",
             modifier = Modifier.fillMaxWidth(),
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Center,
         )
-        Spacer(modifier = Modifier.height(5.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
@@ -94,7 +261,7 @@ fun MainScreen(uiState: MainViewState, onProviderClicked: (ProviderData) -> Unit
         ) {
             items(uiState.providers) {
                 ShowProvider(it, onProviderClicked = onProviderClicked)
-                HorizontalDivider(color = Color.Black)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
         }
     }
@@ -147,6 +314,139 @@ fun ShowAppWidget(index: Int, widgetDesc: AppWidgetDesc) {
                     )
                 }
         }
+    }
+}
+
+
+@OptIn(ExperimentalGlanceRemoteViewsApi::class)
+@Composable
+fun WidgetConfigScreen(
+    appWidgetId: Int,
+    onConfirm: (BinaryClockWidgetConfig) -> Unit,
+) {
+    var showBitLabels by remember { mutableStateOf(true) }
+    var showHmsLabels by remember { mutableStateOf(true) }
+
+    val context = LocalContext.current
+    val now = LocalTime.now()
+    val digits = BinaryClockDigits.timeDigits(now.hour, now.minute)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            "Configure Widget",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Preview
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentAlignment = Alignment.Center,
+        ) {
+            val previewWidth = minOf(maxWidth, 300.dp)
+            val previewHeight = previewWidth * 0.55f
+            val size = DpSize(previewWidth, previewHeight)
+
+            val remoteViews by produceState<android.widget.RemoteViews?>(
+                initialValue = null, digits, size, showBitLabels, showHmsLabels,
+            ) {
+                value = GlanceRemoteViews().compose(
+                    context = context,
+                    size = size,
+                ) {
+                    BinaryClockWidgetContent(
+                        digits = digits,
+                        showBitLabels = showBitLabels,
+                        showHmsLabels = showHmsLabels,
+                    )
+                }.remoteViews
+            }
+
+            remoteViews?.let { rv ->
+                AndroidView(
+                    modifier = Modifier
+                        .width(previewWidth)
+                        .height(previewHeight),
+                    factory = { ctx ->
+                        val density = ctx.resources.displayMetrics.density
+                        val widthPx = (previewWidth.value * density).toInt()
+                        val heightPx = (previewHeight.value * density).toInt()
+                        FrameLayout(ctx).apply {
+                            val child = rv.apply(ctx, this)
+                            child.layoutParams = FrameLayout.LayoutParams(widthPx, heightPx)
+                            addView(child)
+                        }
+                    },
+                    update = { frameLayout ->
+                        val density = frameLayout.context.resources.displayMetrics.density
+                        val widthPx = (previewWidth.value * density).toInt()
+                        val heightPx = (previewHeight.value * density).toInt()
+                        frameLayout.removeAllViews()
+                        val child = rv.apply(frameLayout.context, frameLayout)
+                        child.layoutParams = FrameLayout.LayoutParams(widthPx, heightPx)
+                        frameLayout.addView(child)
+                    },
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Config toggles
+        ConfigToggle(
+            label = "Show bit labels (8, 4, 2, 1)",
+            checked = showBitLabels,
+            onCheckedChange = { showBitLabels = it },
+        )
+        ConfigToggle(
+            label = "Show H / M labels",
+            checked = showHmsLabels,
+            onCheckedChange = { showHmsLabels = it },
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Button(
+            onClick = {
+                onConfirm(BinaryClockWidgetConfig(
+                    showBitLabels = showBitLabels,
+                    showHmsLabels = showHmsLabels,
+                ))
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Add Widget")
+        }
+    }
+}
+
+@Composable
+private fun ConfigToggle(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
