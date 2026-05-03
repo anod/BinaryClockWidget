@@ -11,6 +11,7 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -30,6 +31,8 @@ import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.appWidgetBackground
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
+import androidx.glance.appwidget.state.getAppWidgetState
+import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
 import androidx.glance.currentState
@@ -42,6 +45,7 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.width
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
@@ -52,10 +56,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class BinaryClockGlanceWidget : GlanceAppWidget() {
+
+    companion object {
+        suspend fun rescheduleRefresh(context: Context) {
+            BinaryClockRefreshScheduler.scheduleNext(context)
+        }
+    }
+
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
         provideContent {
-            val config = BinaryClockWidgetConfigKeys.fromPreferences(currentState<Preferences>())
+            val prefs = currentState<Preferences>()
+            // Reading lastUpdated ensures recomposition when state is updated by the refresh scheduler
+            @Suppress("UNUSED_VARIABLE")
+            val lastUpdated = prefs[BinaryClockWidgetConfigKeys.lastUpdated] ?: 0L
+            val config = BinaryClockWidgetConfigKeys.fromPreferences(prefs)
             val now = LocalTime.now()
             BinaryClockWidgetContent(
                 digits = if (config.showSeconds) {
@@ -76,7 +91,9 @@ class BinaryClockWidgetReceiver : GlanceAppWidgetReceiver() {
 
     override fun onEnabled(context: Context) {
         super.onEnabled(context)
-        BinaryClockRefreshScheduler.scheduleNext(context)
+        CoroutineScope(Dispatchers.Default).launch {
+            BinaryClockRefreshScheduler.scheduleNext(context.applicationContext)
+        }
     }
 
     override fun onDisabled(context: Context) {
@@ -95,8 +112,21 @@ class BinaryClockWidgetReceiver : GlanceAppWidgetReceiver() {
             CoroutineScope(Dispatchers.Default).launch {
                 try {
                     val applicationContext = context.applicationContext
+                    // Write lastUpdated to force Glance recomposition (state change triggers re-render)
+                    val manager = GlanceAppWidgetManager(applicationContext)
+                    val glanceIds = manager.getGlanceIds(BinaryClockGlanceWidget::class.java)
+                    val now = System.currentTimeMillis()
+                    for (glanceId in glanceIds) {
+                        updateAppWidgetState(applicationContext, PreferencesGlanceStateDefinition, glanceId) { prefs ->
+                            prefs.toMutablePreferences().apply {
+                                this[BinaryClockWidgetConfigKeys.lastUpdated] = now
+                            }
+                        }
+                    }
                     glanceAppWidget.updateAll(applicationContext)
                     BinaryClockRefreshScheduler.scheduleNext(applicationContext)
+                } catch (e: Exception) {
+                    Log.e("BinaryClock", "Error refreshing widget", e)
                 } finally {
                     pendingResult.finish()
                 }
@@ -111,7 +141,9 @@ class BinaryClockWidgetReceiver : GlanceAppWidgetReceiver() {
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
         // Re-schedule alarm on every update (app reinstall, system restart, periodic update)
-        BinaryClockRefreshScheduler.scheduleNext(context)
+        CoroutineScope(Dispatchers.Default).launch {
+            BinaryClockRefreshScheduler.scheduleNext(context.applicationContext)
+        }
     }
 }
 
@@ -288,20 +320,29 @@ private fun BitLabelsColumn(quadSize: Dp, rowGap: Dp, showHmsLabels: Boolean) {
 private val REGULAR_LAYOUT_MINIMUM_WIDTH = 200.dp
 
 private const val ACTION_REFRESH_BINARY_CLOCK = "info.anodsplace.binaryclock.action.REFRESH"
+private const val SECOND_MILLIS = 1_000L
 private const val MINUTE_MILLIS = 60_000L
 private const val INEXACT_REFRESH_WINDOW_MILLIS = 10_000L
 
 private object BinaryClockRefreshScheduler {
-    fun scheduleNext(context: Context) {
-        val nextMinute = System.currentTimeMillis().let { now ->
-            now - (now % MINUTE_MILLIS) + MINUTE_MILLIS
+    suspend fun scheduleNext(context: Context) {
+        val manager = GlanceAppWidgetManager(context)
+        val glanceIds = manager.getGlanceIds(BinaryClockGlanceWidget::class.java)
+        val anyShowSeconds = glanceIds.any { glanceId ->
+            val prefs = getAppWidgetState(context, PreferencesGlanceStateDefinition, glanceId)
+            BinaryClockWidgetConfigKeys.fromPreferences(prefs).showSeconds
         }
+
+        val intervalMillis = if (anyShowSeconds) SECOND_MILLIS else MINUTE_MILLIS
+        val now = System.currentTimeMillis()
+        val nextTick = now - (now % intervalMillis) + intervalMillis
+
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         val refreshIntent = pendingIntent(context)
         if (alarmManager.canScheduleExactAlarms()) {
-            alarmManager.setExact(AlarmManager.RTC, nextMinute, refreshIntent)
+            alarmManager.setExact(AlarmManager.RTC, nextTick, refreshIntent)
         } else {
-            alarmManager.setWindow(AlarmManager.RTC, nextMinute, INEXACT_REFRESH_WINDOW_MILLIS, refreshIntent)
+            alarmManager.setWindow(AlarmManager.RTC, nextTick, INEXACT_REFRESH_WINDOW_MILLIS, refreshIntent)
         }
     }
 

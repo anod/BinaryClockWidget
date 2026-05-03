@@ -125,16 +125,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun saveWidgetConfig(appWidgetId: Int, config: BinaryClockWidgetConfig) {
-        MainScope().launch {
-            val glanceId = GlanceAppWidgetManager(this@MainActivity).getGlanceIdBy(appWidgetId)
-            updateAppWidgetState(this@MainActivity, glanceId) { prefs ->
-                prefs[BinaryClockWidgetConfigKeys.showBitLabels] = config.showBitLabels
-                prefs[BinaryClockWidgetConfigKeys.showHmsLabels] = config.showHmsLabels
-                prefs[BinaryClockWidgetConfigKeys.showSeconds] = config.showSeconds
-            }
-            BinaryClockGlanceWidget().update(this@MainActivity, glanceId)
+    private suspend fun saveWidgetConfig(appWidgetId: Int, config: BinaryClockWidgetConfig) {
+        val glanceId = GlanceAppWidgetManager(this@MainActivity).getGlanceIdBy(appWidgetId)
+        updateAppWidgetState(this@MainActivity, glanceId) { prefs ->
+            prefs[BinaryClockWidgetConfigKeys.showBitLabels] = config.showBitLabels
+            prefs[BinaryClockWidgetConfigKeys.showHmsLabels] = config.showHmsLabels
+            prefs[BinaryClockWidgetConfigKeys.showSeconds] = config.showSeconds
         }
+        BinaryClockGlanceWidget().update(this@MainActivity, glanceId)
+        // Reschedule refresh alarm (interval depends on showSeconds config)
+        BinaryClockGlanceWidget.rescheduleRefresh(applicationContext)
     }
 
     override fun onResume() {
