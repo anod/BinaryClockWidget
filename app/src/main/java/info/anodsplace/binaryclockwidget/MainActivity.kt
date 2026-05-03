@@ -32,8 +32,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -188,10 +190,23 @@ private fun WidgetPreviewSection(modifier: Modifier = Modifier, onSaveConfig: ((
     var showBitLabels by remember { mutableStateOf(true) }
     var showHmsLabels by remember { mutableStateOf(true) }
     var showSeconds by remember { mutableStateOf(false) }
+    var tick by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(showSeconds) {
+        while (true) {
+            val now = System.currentTimeMillis()
+            val interval = if (showSeconds) 1000L else 60_000L
+            val next = now - (now % interval) + interval
+            kotlinx.coroutines.delay(next - now)
+            tick = System.currentTimeMillis()
+        }
+    }
 
     fun currentConfig() = BinaryClockWidgetConfig(showBitLabels = showBitLabels, showHmsLabels = showHmsLabels, showSeconds = showSeconds)
 
     val context = LocalContext.current
+    @Suppress("UNUSED_VARIABLE")
+    val triggerRecomposition = tick
     val now = LocalTime.now()
     val digits = if (showSeconds) {
         BinaryClockDigits.timeDigits(now.hour, now.minute, now.second)
@@ -370,8 +385,21 @@ fun WidgetConfigScreen(
     var showBitLabels by remember { mutableStateOf(initialConfig.showBitLabels) }
     var showHmsLabels by remember { mutableStateOf(initialConfig.showHmsLabels) }
     var showSeconds by remember { mutableStateOf(initialConfig.showSeconds) }
+    var tick by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(showSeconds) {
+        while (true) {
+            val now = System.currentTimeMillis()
+            val interval = if (showSeconds) 1000L else 60_000L
+            val next = now - (now % interval) + interval
+            kotlinx.coroutines.delay(next - now)
+            tick = System.currentTimeMillis()
+        }
+    }
 
     val context = LocalContext.current
+    @Suppress("UNUSED_VARIABLE")
+    val triggerRecomposition = tick
     val now = LocalTime.now()
     val digits = if (showSeconds) {
         BinaryClockDigits.timeDigits(now.hour, now.minute, now.second)
