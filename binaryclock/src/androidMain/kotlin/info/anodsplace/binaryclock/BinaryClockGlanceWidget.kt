@@ -2,10 +2,16 @@ package info.anodsplace.binaryclock
 
 import android.app.AlarmManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.icu.util.Calendar
+import android.icu.util.TimeZone
 import android.os.Build
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,20 +34,47 @@ import androidx.glance.layout.width
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import java.time.LocalTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.trySendBlocking
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class BinaryClockGlanceWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val timeFlow = callbackFlow {
+            trySendBlocking(Calendar.getInstance())
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(ctx: Context?, intent: Intent) {
+                    val cal = if (intent.action == Intent.ACTION_TIMEZONE_CHANGED) {
+                        val tz = intent.getStringExtra(Intent.EXTRA_TIMEZONE)
+                        if (tz != null) Calendar.getInstance(TimeZone.getTimeZone(tz))
+                        else Calendar.getInstance()
+                    } else {
+                        Calendar.getInstance()
+                    }
+                    cal.timeInMillis = System.currentTimeMillis()
+                    trySendBlocking(cal)
+                }
+            }
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_TIME_TICK)
+                addAction(Intent.ACTION_TIME_CHANGED)
+                addAction(Intent.ACTION_TIMEZONE_CHANGED)
+            }
+            context.registerReceiver(receiver, filter)
+            awaitClose { context.unregisterReceiver(receiver) }
+        }
+
         provideContent {
-            val now = LocalTime.now()
+            val time by timeFlow.collectAsState(initial = Calendar.getInstance())
             BinaryClockWidgetContent(
                 digits = BinaryClockDigits.timeDigits(
-                    hour = now.hour,
-                    minute = now.minute,
-                    second = now.second,
+                    hour = time.get(Calendar.HOUR_OF_DAY),
+                    minute = time.get(Calendar.MINUTE),
+                    second = time.get(Calendar.SECOND),
                 ),
             )
         }

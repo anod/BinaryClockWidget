@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import info.anodsplace.binaryclock.BinaryClockGlanceWidget
+import info.anodsplace.binaryclock.BinaryClockWidgetReceiver
 import info.anodsplace.binaryclockwidget.ui.theme.BinaryClockWidgetTheme
 
 class MainActivity : ComponentActivity() {
@@ -156,8 +158,8 @@ fun GreetingPreview() {
         MainScreen(
             uiState = MainViewState(providers = listOf(
                 ProviderData(
-                    provider = GlanceAppWidget::class.java,
-                    receiver = GlanceAppWidgetReceiver::class.java,
+                    provider = BinaryClockGlanceWidget::class.java,
+                    receiver = BinaryClockWidgetReceiver::class.java,
                     appWidgets = listOf(
                         AppWidgetDesc(
                             appWidgetId = AppWidgetId(1),
