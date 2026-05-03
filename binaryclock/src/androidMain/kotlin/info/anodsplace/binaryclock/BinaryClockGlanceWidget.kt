@@ -4,11 +4,8 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.icu.util.Calendar
 import android.os.Build
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,6 +28,7 @@ import androidx.glance.layout.width
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import java.time.LocalTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -38,12 +36,12 @@ import kotlinx.coroutines.launch
 class BinaryClockGlanceWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
-            val time by timeChangeFlow(context).collectAsState(initial = Calendar.getInstance())
+            val now = LocalTime.now()
             BinaryClockWidgetContent(
                 digits = BinaryClockDigits.timeDigits(
-                    hour = time.get(Calendar.HOUR_OF_DAY),
-                    minute = time.get(Calendar.MINUTE),
-                    second = time.get(Calendar.SECOND),
+                    hour = now.hour,
+                    minute = now.minute,
+                    second = now.second,
                 ),
             )
         }

@@ -10,12 +10,12 @@ kotlin {
 
 android {
     namespace = "info.anodsplace.binaryclockwidget"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "info.anodsplace.binaryclockwidget"
         minSdk = 31
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
