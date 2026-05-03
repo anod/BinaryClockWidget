@@ -9,6 +9,7 @@ import androidx.glance.GlanceId
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -16,6 +17,8 @@ import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.AP
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
+import info.anodsplace.binaryclock.BinaryClockWidgetConfig
+import info.anodsplace.binaryclock.BinaryClockWidgetConfigKeys
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,6 +55,31 @@ class MainViewModel(
 
     private val _uiState = MutableStateFlow(MainViewState())
     val uiState: StateFlow<MainViewState> = _uiState.asStateFlow()
+
+    private val _widgetConfig = MutableStateFlow(BinaryClockWidgetConfig())
+    val widgetConfig: StateFlow<BinaryClockWidgetConfig> = _widgetConfig.asStateFlow()
+
+    init {
+        if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+            loadWidgetConfig()
+        }
+    }
+
+    private fun loadWidgetConfig() {
+        viewModelScope.launch {
+            try {
+                val glanceId = glanceWidgetManger.getGlanceIdBy(appWidgetId)
+                val prefs = getAppWidgetState<androidx.datastore.preferences.core.Preferences>(
+                    app,
+                    androidx.glance.state.PreferencesGlanceStateDefinition,
+                    glanceId,
+                )
+                _widgetConfig.value = BinaryClockWidgetConfigKeys.fromPreferences(prefs)
+            } catch (_: Exception) {
+                // New widget, use defaults
+            }
+        }
+    }
 
     class Factory(private val appWidgetId: Int) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")

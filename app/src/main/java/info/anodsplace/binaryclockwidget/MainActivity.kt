@@ -97,10 +97,12 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     if (isConfigMode) {
+                        val config by viewModel.widgetConfig.collectAsState()
                         WidgetConfigScreen(
                             appWidgetId = viewModel.appWidgetId,
-                            onConfirm = { config ->
-                                saveConfigAndFinish(viewModel.appWidgetId, config)
+                            initialConfig = config,
+                            onConfirm = { newConfig ->
+                                saveConfigAndFinish(viewModel.appWidgetId, newConfig)
                             },
                         )
                     } else {
@@ -117,14 +119,21 @@ class MainActivity : ComponentActivity() {
 
     private fun saveConfigAndFinish(appWidgetId: Int, config: BinaryClockWidgetConfig) {
         MainScope().launch {
+            saveWidgetConfig(appWidgetId, config)
+            setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
+            finish()
+        }
+    }
+
+    private fun saveWidgetConfig(appWidgetId: Int, config: BinaryClockWidgetConfig) {
+        MainScope().launch {
             val glanceId = GlanceAppWidgetManager(this@MainActivity).getGlanceIdBy(appWidgetId)
             updateAppWidgetState(this@MainActivity, glanceId) { prefs ->
                 prefs[BinaryClockWidgetConfigKeys.showBitLabels] = config.showBitLabels
                 prefs[BinaryClockWidgetConfigKeys.showHmsLabels] = config.showHmsLabels
+                prefs[BinaryClockWidgetConfigKeys.showSeconds] = config.showSeconds
             }
             BinaryClockGlanceWidget().update(this@MainActivity, glanceId)
-            setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
-            finish()
         }
     }
 
@@ -175,11 +184,22 @@ fun MainScreen(uiState: MainViewState, onProviderClicked: (ProviderData) -> Unit
 
 @OptIn(ExperimentalGlanceRemoteViewsApi::class)
 @Composable
-private fun WidgetPreviewSection(modifier: Modifier = Modifier) {
+private fun WidgetPreviewSection(modifier: Modifier = Modifier, onSaveConfig: ((BinaryClockWidgetConfig) -> Unit)? = null) {
+    var showBitLabels by remember { mutableStateOf(true) }
+    var showHmsLabels by remember { mutableStateOf(true) }
+    var showSeconds by remember { mutableStateOf(false) }
+
+    fun currentConfig() = BinaryClockWidgetConfig(showBitLabels = showBitLabels, showHmsLabels = showHmsLabels, showSeconds = showSeconds)
+
     val context = LocalContext.current
     val now = LocalTime.now()
-    val digits = BinaryClockDigits.timeDigits(now.hour, now.minute, now.second)
+    val digits = if (showSeconds) {
+        BinaryClockDigits.timeDigits(now.hour, now.minute, now.second)
+    } else {
+        BinaryClockDigits.timeDigits(now.hour, now.minute)
+    }
 
+    @Suppress("UnusedBoxWithConstraintsScope")
     BoxWithConstraints(
         modifier = modifier.padding(16.dp),
         contentAlignment = Alignment.Center,
@@ -188,12 +208,18 @@ private fun WidgetPreviewSection(modifier: Modifier = Modifier) {
         val previewHeight = previewWidth * 0.55f
         val size = DpSize(previewWidth, previewHeight)
 
-        val remoteViews by produceState<android.widget.RemoteViews?>(initialValue = null, digits, size) {
+        val remoteViews by produceState<android.widget.RemoteViews?>(
+            initialValue = null, digits, size, showBitLabels, showHmsLabels, showSeconds,
+        ) {
             value = GlanceRemoteViews().compose(
                 context = context,
                 size = size,
             ) {
-                BinaryClockWidgetContent(digits = digits)
+                BinaryClockWidgetContent(
+                    digits = digits,
+                    showBitLabels = showBitLabels,
+                    showHmsLabels = showHmsLabels,
+                )
             }.remoteViews
         }
 
@@ -233,6 +259,22 @@ private fun WidgetPreviewSection(modifier: Modifier = Modifier) {
                     },
                 )
             }
+            Spacer(modifier = Modifier.height(16.dp))
+            ConfigToggle(
+                label = "Show seconds",
+                checked = showSeconds,
+                onCheckedChange = { showSeconds = it; onSaveConfig?.invoke(currentConfig()) },
+            )
+            ConfigToggle(
+                label = "Show bit labels",
+                checked = showBitLabels,
+                onCheckedChange = { showBitLabels = it; onSaveConfig?.invoke(currentConfig()) },
+            )
+            ConfigToggle(
+                label = "Show hint",
+                checked = showHmsLabels,
+                onCheckedChange = { showHmsLabels = it; onSaveConfig?.invoke(currentConfig()) },
+            )
         }
     }
 }
@@ -322,14 +364,20 @@ fun ShowAppWidget(index: Int, widgetDesc: AppWidgetDesc) {
 @Composable
 fun WidgetConfigScreen(
     appWidgetId: Int,
+    initialConfig: BinaryClockWidgetConfig = BinaryClockWidgetConfig(),
     onConfirm: (BinaryClockWidgetConfig) -> Unit,
 ) {
-    var showBitLabels by remember { mutableStateOf(true) }
-    var showHmsLabels by remember { mutableStateOf(true) }
+    var showBitLabels by remember { mutableStateOf(initialConfig.showBitLabels) }
+    var showHmsLabels by remember { mutableStateOf(initialConfig.showHmsLabels) }
+    var showSeconds by remember { mutableStateOf(initialConfig.showSeconds) }
 
     val context = LocalContext.current
     val now = LocalTime.now()
-    val digits = BinaryClockDigits.timeDigits(now.hour, now.minute)
+    val digits = if (showSeconds) {
+        BinaryClockDigits.timeDigits(now.hour, now.minute, now.second)
+    } else {
+        BinaryClockDigits.timeDigits(now.hour, now.minute)
+    }
 
     Column(
         modifier = Modifier
@@ -345,6 +393,7 @@ fun WidgetConfigScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         // Preview
+        @Suppress("UnusedBoxWithConstraintsScope")
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
@@ -356,7 +405,7 @@ fun WidgetConfigScreen(
             val size = DpSize(previewWidth, previewHeight)
 
             val remoteViews by produceState<android.widget.RemoteViews?>(
-                initialValue = null, digits, size, showBitLabels, showHmsLabels,
+                initialValue = null, digits, size, showBitLabels, showHmsLabels, showSeconds,
             ) {
                 value = GlanceRemoteViews().compose(
                     context = context,
@@ -400,14 +449,18 @@ fun WidgetConfigScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Config toggles
         ConfigToggle(
-            label = "Show bit labels (8, 4, 2, 1)",
+            label = "Show seconds",
+            checked = showSeconds,
+            onCheckedChange = { showSeconds = it },
+        )
+        ConfigToggle(
+            label = "Show bit labels",
             checked = showBitLabels,
             onCheckedChange = { showBitLabels = it },
         )
         ConfigToggle(
-            label = "Show H / M labels",
+            label = "Show hint",
             checked = showHmsLabels,
             onCheckedChange = { showHmsLabels = it },
         )
@@ -419,11 +472,12 @@ fun WidgetConfigScreen(
                 onConfirm(BinaryClockWidgetConfig(
                     showBitLabels = showBitLabels,
                     showHmsLabels = showHmsLabels,
+                    showSeconds = showSeconds,
                 ))
             },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Add Widget")
+            Text("Save")
         }
     }
 }
@@ -437,7 +491,7 @@ private fun ConfigToggle(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
+            .padding(vertical = 0.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {

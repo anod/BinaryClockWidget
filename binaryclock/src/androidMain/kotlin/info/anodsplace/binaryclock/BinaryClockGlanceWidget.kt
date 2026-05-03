@@ -8,6 +8,7 @@ import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import androidx.compose.runtime.Composable
@@ -19,6 +20,10 @@ import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.LocalSize
+import androidx.glance.action.ActionParameters
+import androidx.glance.action.actionParametersOf
+import androidx.glance.action.actionStartActivity
+import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
@@ -48,16 +53,19 @@ import kotlinx.coroutines.launch
 
 class BinaryClockGlanceWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
         provideContent {
             val config = BinaryClockWidgetConfigKeys.fromPreferences(currentState<Preferences>())
             val now = LocalTime.now()
             BinaryClockWidgetContent(
-                digits = BinaryClockDigits.timeDigits(
-                    hour = now.hour,
-                    minute = now.minute,
-                ),
+                digits = if (config.showSeconds) {
+                    BinaryClockDigits.timeDigits(hour = now.hour, minute = now.minute, second = now.second)
+                } else {
+                    BinaryClockDigits.timeDigits(hour = now.hour, minute = now.minute)
+                },
                 showBitLabels = config.showBitLabels,
                 showHmsLabels = config.showHmsLabels,
+                appWidgetId = appWidgetId,
             )
         }
     }
@@ -117,6 +125,7 @@ fun BinaryClockWidgetContent(
     digits: List<Int>,
     showBitLabels: Boolean = true,
     showHmsLabels: Boolean = true,
+    appWidgetId: Int = AppWidgetManager.INVALID_APPWIDGET_ID,
 ) {
     val isCompactMode = LocalSize.current.width < REGULAR_LAYOUT_MINIMUM_WIDTH
     val dotSize = if (isCompactMode) 6.dp else 8.dp
@@ -128,6 +137,19 @@ fun BinaryClockWidgetContent(
     val inactiveColor = GlanceTheme.colors.surfaceVariant
     val pairCount = digits.size / 2
 
+    val clickModifier = if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+        GlanceModifier.clickable(
+            actionStartActivity(
+                ComponentName("info.anodsplace.binaryclockwidget", "info.anodsplace.binaryclockwidget.MainActivity"),
+                actionParametersOf(
+                    ActionParameters.Key<Int>(AppWidgetManager.EXTRA_APPWIDGET_ID) to appWidgetId,
+                ),
+            )
+        )
+    } else {
+        GlanceModifier
+    }
+
     GlanceTheme {
         Column(
             modifier = GlanceModifier
@@ -135,7 +157,8 @@ fun BinaryClockWidgetContent(
                 .appWidgetBackground()
                 .background(GlanceTheme.colors.background)
                 .cornerRadius(android.R.dimen.system_app_widget_background_radius)
-                .padding(horizontal = 4.dp, vertical = 4.dp),
+                .padding(horizontal = 4.dp, vertical = 4.dp)
+                .then(clickModifier),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -156,7 +179,7 @@ fun BinaryClockWidgetContent(
                 }
                 if (showBitLabels) {
                     Spacer(modifier = GlanceModifier.width(groupGap))
-                    BitLabelsColumn(quadSize = quadSize, rowGap = rowGap)
+                    BitLabelsColumn(quadSize = quadSize, rowGap = rowGap, showHmsLabels = showHmsLabels)
                 }
             }
         }
@@ -233,7 +256,7 @@ private fun QuadDot(active: Boolean, dotSize: Dp, activeColor: ColorProvider, in
 }
 
 @Composable
-private fun BitLabelsColumn(quadSize: Dp, rowGap: Dp) {
+private fun BitLabelsColumn(quadSize: Dp, rowGap: Dp, showHmsLabels: Boolean) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalAlignment = Alignment.CenterVertically,
@@ -252,11 +275,13 @@ private fun BitLabelsColumn(quadSize: Dp, rowGap: Dp) {
                 Spacer(modifier = GlanceModifier.height(rowGap))
             }
         }
-        Spacer(modifier = GlanceModifier.height(2.dp))
-        Text(
-            text = "",
-            style = TextStyle(fontSize = labelFontSize),
-        )
+        if (showHmsLabels) {
+            Spacer(modifier = GlanceModifier.height(2.dp))
+            Text(
+                text = "",
+                style = TextStyle(fontSize = labelFontSize),
+            )
+        }
     }
 }
 
