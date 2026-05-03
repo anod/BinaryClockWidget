@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Binary Clock Widget"
 include(":app")
+include(":binaryclock")
